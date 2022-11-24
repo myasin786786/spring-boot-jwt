@@ -2,7 +2,7 @@ name: spring-boot jwt deployment
 
 on:
   push:
-    branches: [ release ]
+    branches: [ main ]
 
 jobs:
 
