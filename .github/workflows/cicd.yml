@@ -12,7 +12,7 @@ jobs:
 
 
     steps:
-      - run: echo ${{github.event.base_ref}}
+    - run: echo ${{github.event.base_ref}}
     - name: Check out code
       uses: actions/checkout@v2
 
@@ -32,9 +32,39 @@ jobs:
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         ECR_REPOSITORY: cicd-ecr
-        IMAGE_TAG: ${{ github.sha }}
+        IMAGE_TAG: ${{github.ref_name}}
       run: |
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
-        docker push -a $ECR_REGISTRY/$ECR_REPOSITORY      
-       
+        docker push -a $ECR_REGISTRY/$ECR_REPOSITORY
+
+    - name: Log out of Amazon ECR
+        if: always()
+        run: docker logout ${{ steps.login-ecr.outputs.registry }}    
+    - name: Setup SSH with EC2
+        env:
+          KEY_FILE: ${{secrets.ACCESS_KEY_FILE}}
+          DEPLOYMENT_IP: ${{secrets.DEPLOYMENT_IP}}
+        run: |
+          mkdir -p ~/.ssh/
+          echo '${{env.KEY_FILE}}' > ~/.ssh/key.pem
+          chmod 600 ~/.ssh/key.pem
+          echo '${{env.DEPLOYMENT_IP}}' > ~/.ssh/known_hosts
+          sudo chmod 600 ~/.ssh/known_hosts    
+    - name: SSH into instance
+        env:
+          DEPLOYMENT_IP: ${{secrets.DEPLOYMENT_IP}}
+          USER : ${{secrets.SSH_USER}}
+          ECR_REGISTRY: public.ecr.aws/i8h0t4n9
+          ECR_REPOSITORY: sadapay-interview
+          IMAGE_TAG: ${{ github.ref_name }}
+          PORT: "8080"
+        run: |  
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ${{env.USER}}@${{env.DEPLOYMENT_IP}}  << EOF
+            sudo docker pull ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+            sudo docker stop ${{ env.ECR_REPOSITORY }}
+            sudo docker rm -f ${{ env.ECR_REPOSITORY }}
+            sudo docker image tag ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} ${{ env.ECR_REPOSITORY }}:latest
+            sudo docker run -p -d ${{env.PORT}}:8080 --name ${{ env.ECR_REPOSITORY }} ${{ env.ECR_REPOSITORY }}:latest  
+          EOF
+
       
